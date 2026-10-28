@@ -1,0 +1,58 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Fetch pinned x
+        run: |
+          mkdir -p vendor
+          git clone --filter=blob:none --no-checkout https://github.com/equislinux/x.git vendor/x
+          git -C vendor/x checkout --detach "$(cat vendor/x.sha)"
+
+      - name: Apply overlay (check mode)
+        run: scripts/apply-overlay.sh --check
+
+      - name: Shell syntax
+        run: |
+          for f in scripts/*.sh; do bash -n "$f"; done
+
+      - name: Shellcheck
+        run: shellcheck scripts/*.sh
+
+  iso:
+    # The ISO needs a native aarch64 host. Register a self-hosted runner with
+    # these labels (an Arch Linux ARM machine or an Apple Silicon VM).
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build inputs
+        run: |
+          scripts/fetch-x.sh
+          scripts/fetch-archiso.sh
+          scripts/apply-overlay.sh
+
+      - name: Build [x] (unsigned)
+        run: scripts/build-repo.sh --no-sign
+
+      - name: Build ISO
+        run: sudo scripts/build-iso.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: x-aarch64-iso
+          path: out/iso/x-*-aarch64.iso
+          if-no-files-found: error

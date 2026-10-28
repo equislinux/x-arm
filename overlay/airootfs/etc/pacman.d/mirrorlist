@@ -1,0 +1,4 @@
+## Arch Linux ARM repository mirrorlist
+## The geo endpoint redirects to the closest official mirror. HTTPS is not used:
+## mirror.archlinuxarm.org currently serves a certificate for a different name.
+Server = http://mirror.archlinuxarm.org/$arch/$repo

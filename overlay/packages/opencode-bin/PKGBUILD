@@ -1,0 +1,19 @@
+# Maintainer: Xscriptor <dev@xscriptor.com>
+# aarch64 override of x-repo/packages/opencode-bin: upstream arm64 tarball.
+pkgname=opencode-bin
+pkgver=1.19.5
+pkgrel=1
+pkgdesc="The AI coding agent built for the terminal (official binary)"
+arch=('aarch64')
+url="https://github.com/anomalyco/opencode"
+license=('MIT')
+depends=('glibc' 'gcc-libs')
+provides=('opencode')
+conflicts=('opencode')
+options=('!strip' '!debug')
+source=("opencode-bin-${pkgver}.tar.gz::https://github.com/anomalyco/opencode/releases/download/v${pkgver}/opencode-linux-arm64.tar.gz")
+sha256sums=('fae5be262d693b7c5e562856cc473e59e741772936db0c0600ac0d5ed5bd088b')
+
+package() {
+    install -Dm755 "$srcdir/opencode" "$pkgdir/usr/bin/opencode"
+}

@@ -1,0 +1,11 @@
+# Build inputs
+/vendor/*
+!/vendor/*.sha
+
+# Outputs
+/out/
+/work/
+*.log
+
+# Local overrides
+.env

@@ -1,0 +1,21 @@
+# Maintainer: Xscriptor <dev@xscriptor.com>
+# aarch64 override: upstream ships an aarch64 Linux binary since v1.0.1.
+pkgname=xfetch-bin
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="Cross-platform system information fetcher with plugins, themes and daemons (official binary)"
+arch=('aarch64')
+url="https://github.com/xfetch-cli/xfetch"
+license=('MIT')
+depends=('gcc-libs')
+provides=('xfetch')
+conflicts=('xfetch' 'xfetch-git')
+options=('!strip')
+source=("xfetch-$pkgver-aarch64-unknown-linux-gnu.tar.gz::$url/releases/download/v$pkgver/xfetch-$pkgver-aarch64-unknown-linux-gnu.tar.gz")
+sha256sums=('c57eee14302fff3cc135c079a104d2bf58dc63347b8ad8f48fbde8bbfa25e1a6')
+
+package() {
+    install -Dm755 "$srcdir/xfetch" "$pkgdir/usr/bin/xfetch"
+    install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "$srcdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

@@ -1,0 +1,10 @@
+# mkinitcpio preset for the 'linux-aarch64' package on archiso.
+# The kernel ships /boot/Image (no vmlinuz-*), so the archiso preset points at
+# the image path instead of a kernel version string.
+
+PRESETS=('archiso')
+
+ALL_kver='/boot/Image'
+archiso_config='/etc/mkinitcpio.conf.d/archiso.conf'
+
+archiso_image="/boot/initramfs-linux.img"

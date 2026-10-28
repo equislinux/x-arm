@@ -1,0 +1,31 @@
+#
+# pacman.conf for the aarch64 live ISO build.
+#
+# scripts/build-iso.sh renders this template with @X_REPO@ replaced by a local
+# file:// repository or the published https:// URL. Arch Linux ARM databases are
+# not signed (packages are), hence "DatabaseOptional".
+#
+[options]
+HoldPkg     = pacman glibc
+Architecture = aarch64
+ParallelDownloads = 5
+SigLevel    = Required DatabaseOptional
+LocalFileSigLevel = Optional
+
+# X packages for the live image. Never required during the build: the project
+# key is imported and locally signed at boot by x-keyring.service.
+[x]
+SigLevel = Never
+Server = @X_REPO@
+
+[core]
+Include = @MIRRORLIST@
+
+[extra]
+Include = @MIRRORLIST@
+
+[alarm]
+Include = @MIRRORLIST@
+
+[aur]
+Include = @MIRRORLIST@

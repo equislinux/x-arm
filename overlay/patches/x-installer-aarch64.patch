@@ -1,0 +1,211 @@
+--- a/airootfs/root/x-installer/install.sh
++++ b/airootfs/root/x-installer/install.sh
+@@ -47,15 +47,15 @@
+ MODE="$(jget mode)";                  MODE="${MODE:-wipe}"
+ ESP_OVERRIDE="$(jget esp)"
+ MIN_SIZE="$(jget min_size)";          MIN_SIZE="${MIN_SIZE:-20}"
+-KERNEL="$(jget kernel)";              KERNEL="${KERNEL:-linux}"
++KERNEL="$(jget kernel)";              KERNEL="${KERNEL:-linux-aarch64}"
+ KERNEL_PARAMS="$(jget kernel_params)"
+ 
+ [[ -n "$DISK" && -n "$HOST" && -n "$USER" ]] || { echo "installer: incomplete JSON" >&2; exit 1; }
+ [[ "$MODE" == "wipe" || "$MODE" == "dualboot" ]] || { echo "installer: invalid mode '$MODE' (wipe|dualboot)" >&2; exit 1; }
+ [[ "$MIN_SIZE" =~ ^[0-9]+$ ]] || { echo "installer: min_size must be a number of GiB" >&2; exit 1; }
+ case "$KERNEL" in
+-    linux|linux-lts|linux-zen|linux-hardened|linux-rt|linux-rt-lts) ;;
+-    *) echo "installer: unsupported kernel '$KERNEL' (linux|linux-lts|linux-zen|linux-hardened|linux-rt|linux-rt-lts)" >&2; exit 1 ;;
++    linux-aarch64|linux-aarch64-rc) ;;
++    *) echo "installer: unsupported kernel '$KERNEL' (linux-aarch64|linux-aarch64-rc)" >&2; exit 1 ;;
+ esac
+ if [[ -n "$KERNEL_PARAMS" && ! "$KERNEL_PARAMS" =~ ^[A-Za-z0-9_=.,:/@%+-]+([[:space:]][A-Za-z0-9_=.,:/@%+-]+)*$ ]]; then
+     echo "installer: kernel_params contains unsupported characters" >&2
+@@ -96,7 +96,7 @@
+ }
+ 
+ MNT=/mnt
+-PKGLIST="${X_PKGLIST:-/root/x-installer/packages.x86_64}"
++PKGLIST="${X_PKGLIST:-/root/x-installer/packages.$(uname -m)}"
+ 
+ cleanup() {
+     rm -f "$MNT/etc/sudoers.d/x-hypr-install" 2>/dev/null || true
+@@ -163,15 +163,10 @@
+     sleep 2
+ else
+     sgdisk --zap-all "$DISK"
+-    if [[ "$BOOT" == "grub" ]]; then
+-        sgdisk -n 1:0:+1M -t 1:ef02 -n 2:0:+1G -t 2:ef00 -n 3:0:0 -t 3:8300 "$DISK"
+-        EFI="$(partdev "$DISK")2"
+-        ROOTP="$(partdev "$DISK")3"
+-    else
+-        sgdisk -n 1:0:+1G -t 1:ef00 -n 2:0:0 -t 2:8300 "$DISK"
+-        EFI="$(partdev "$DISK")1"
+-        ROOTP="$(partdev "$DISK")2"
+-    fi
++    # aarch64 is UEFI-only: one ESP plus root, whatever the bootloader.
++    sgdisk -n 1:0:+1G -t 1:ef00 -n 2:0:0 -t 2:8300 "$DISK"
++    EFI="$(partdev "$DISK")1"
++    ROOTP="$(partdev "$DISK")2"
+     partprobe "$DISK" || true
+     sleep 1
+ fi
+@@ -225,7 +220,7 @@
+ [[ "$ENC" == "yes" ]] && EXTRA="$EXTRA cryptsetup"
+ # Optional virtualization stack: QEMU/KVM, libvirt, GUI and UEFI/TPM guests.
+ if [[ "$VIRT" == "yes" ]]; then
+-    EXTRA="$EXTRA qemu-desktop qemu-img qemu-system-aarch64 libvirt virt-manager virt-install libosinfo virt-viewer dnsmasq iptables edk2-ovmf edk2-aarch64 swtpm dmidecode"
++    EXTRA="$EXTRA qemu-desktop qemu-img qemu-system-aarch64 libvirt virt-manager virt-install libosinfo virt-viewer dnsmasq iptables swtpm dmidecode"
+ fi
+ # KDE Plasma is installed online from the official repositories; the X
+ # branding layer (x-kde-settings) comes from the signed [x] repository.
+@@ -244,7 +239,7 @@
+ echo "== waiting for network"
+ NET_OK=0
+ for i in $(seq 1 60); do
+-    if getent ahostsv4 geo.mirror.pkgbuild.com >/dev/null 2>&1; then
++    if getent ahostsv4 mirror.archlinuxarm.org >/dev/null 2>&1; then
+         echo "network available"
+         NET_OK=1
+         break
+@@ -268,7 +263,7 @@
+ # race with it, so make sure the live keyring exists and has the Arch keys
+ # (pacstrap verifies core/extra and [x] against the live keyring).
+ pacman-key --init
+-pacman-key --populate archlinux
++pacman-key --populate
+ LIVE_KEY=/etc/pacman.d/x-repo.pub
+ if [[ -f "$LIVE_KEY" ]]; then
+     pacman-key --add "$LIVE_KEY"
+@@ -288,7 +283,7 @@
+ mkdir -p "$GPGDIR"
+ chmod 700 "$GPGDIR"
+ pacman-key --gpgdir "$GPGDIR" --init
+-pacman-key --gpgdir "$GPGDIR" --populate archlinux
++pacman-key --gpgdir "$GPGDIR" --populate
+ pacman-key --gpgdir "$GPGDIR" --add "$LIVE_KEY"
+ pacman-key --gpgdir "$GPGDIR" --lsign-key "$X_KEY_FPR"
+ install -Dm644 "$LIVE_KEY" "$MNT/etc/pacman.d/x-repo.pub"
+@@ -343,7 +338,7 @@
+ [x]
+ # Key imported and locally signed during install (/etc/pacman.d/x-repo.pub).
+ SigLevel = Required
+-Server = https://equislinux.github.io/x-repo/repo/x86_64
++Server = https://equislinux.github.io/x-repo/repo/aarch64
+ EOF
+ fi
+ 
+@@ -464,24 +459,24 @@
+ 
+ echo "== bootloader ($BOOT)"
+ if [[ "$BOOT" == "systemd-boot" ]]; then
+-    # bootctl also writes the fallback \EFI\BOOT\BOOTX64.EFI; in dualboot that
+-    # file may belong to Windows, so save and restore it around bootctl.
++    # bootctl also writes the fallback \EFI\BOOT\BOOTAA64.EFI; in dualboot that
++    # file may belong to another OS, so save and restore it around bootctl.
+     saved_fallback=""
+-    if [[ "$MODE" == "dualboot" && -f "$MNT/boot/EFI/BOOT/BOOTX64.EFI" ]]; then
++    if [[ "$MODE" == "dualboot" && -f "$MNT/boot/EFI/BOOT/BOOTAA64.EFI" ]]; then
+         saved_fallback="$(mktemp)"
+-        cp -a "$MNT/boot/EFI/BOOT/BOOTX64.EFI" "$saved_fallback"
++        cp -a "$MNT/boot/EFI/BOOT/BOOTAA64.EFI" "$saved_fallback"
+     fi
+     arch-chroot "$MNT" bootctl --esp-path=/boot install >/dev/null
+     if [[ -n "$saved_fallback" ]]; then
+-        cp -a "$saved_fallback" "$MNT/boot/EFI/BOOT/BOOTX64.EFI"
++        cp -a "$saved_fallback" "$MNT/boot/EFI/BOOT/BOOTAA64.EFI"
+         rm -f "$saved_fallback"
+-        echo "   restored the pre-existing EFI/BOOT/BOOTX64.EFI (left untouched)"
++        echo "   restored the pre-existing EFI/BOOT/BOOTAA64.EFI (left untouched)"
+     fi
+     # Ensure a removable fallback exists for firmware that only boots
+-    # \EFI\BOOT\BOOTX64.EFI (wipe mode; in dualboot the existing one wins).
+-    if [[ ! -f "$MNT/boot/EFI/BOOT/BOOTX64.EFI" ]]; then
++    # \EFI\BOOT\BOOTAA64.EFI (wipe mode; in dualboot the existing one wins).
++    if [[ ! -f "$MNT/boot/EFI/BOOT/BOOTAA64.EFI" ]]; then
+         mkdir -p "$MNT/boot/EFI/BOOT"
+-        cp "$MNT/boot/EFI/systemd/systemd-bootx64.efi" "$MNT/boot/EFI/BOOT/BOOTX64.EFI"
++        cp "$MNT/boot/EFI/systemd/systemd-bootaa64.efi" "$MNT/boot/EFI/BOOT/BOOTAA64.EFI"
+     fi
+     mkdir -p "$MNT/boot/loader/entries"
+     cat > "$MNT/boot/loader/loader.conf" <<'EOF'
+@@ -491,8 +486,8 @@
+ EOF
+     cat > "$MNT/boot/loader/entries/x.conf" <<EOF
+ title   X Linux
+-linux   /vmlinuz-$KERNEL
+-initrd  /initramfs-$KERNEL.img
++linux   /Image
++initrd  /initramfs-linux.img
+ options $CMDROOT
+ EOF
+ else
+@@ -501,10 +496,9 @@
+         # Unique bootloader-id: never overwrite EFI/Microsoft/**; os-prober
+         # adds the Windows entry to the generated menu.
+         arch-chroot "$MNT" bash -c "grep -q '^GRUB_DISABLE_OS_PROBER=' /etc/default/grub && sed -i 's/^GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub || echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub"
+-        arch-chroot "$MNT" grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=x --recheck
++        arch-chroot "$MNT" grub-install --target=arm64-efi --efi-directory=/boot --bootloader-id=x --recheck
+     else
+-        arch-chroot "$MNT" grub-install --target=x86_64-efi --efi-directory=/boot --removable --recheck
+-        arch-chroot "$MNT" grub-install --target=i386-pc --boot-directory=/boot "$DISK"
++        arch-chroot "$MNT" grub-install --target=arm64-efi --efi-directory=/boot --removable --recheck
+     fi
+     arch-chroot "$MNT" grub-mkconfig -o /boot/grub/grub.cfg
+ fi
+@@ -518,12 +512,12 @@
+         if [[ "$BOOT" == "systemd-boot" ]]; then
+             if ! efibootmgr 2>/dev/null | grep -q 'Linux Boot Manager'; then
+                 efibootmgr -c -d "$DISK" -p "$espnum" -L 'Linux Boot Manager' \
+-                    -l '\EFI\systemd\systemd-bootx64.efi' >/dev/null 2>&1 || true
++                    -l '\EFI\systemd\systemd-bootaa64.efi' >/dev/null 2>&1 || true
+             fi
+         elif [[ "$MODE" == "dualboot" ]]; then
+             if ! efibootmgr 2>/dev/null | grep -q 'X Linux'; then
+                 efibootmgr -c -d "$DISK" -p "$espnum" -L 'X Linux' \
+-                    -l '\EFI\x\grubx64.efi' >/dev/null 2>&1 || true
++                    -l '\EFI\x\grubaa64.efi' >/dev/null 2>&1 || true
+             fi
+         fi
+     fi
+--- a/airootfs/root/x-installer/configurator.sh
++++ b/airootfs/root/x-installer/configurator.sh
+@@ -93,16 +93,15 @@
+ 
+ # Bootloader.
+ BOOT=""
+-select_one BOOT "Bootloader" "GRUB (BIOS + UEFI)" "systemd-boot (UEFI only)"
++select_one BOOT "Bootloader" "GRUB (UEFI)" "systemd-boot (UEFI only)"
+ [[ "$BOOT" == "systemd-boot (UEFI only)" ]] && BOOT="systemd-boot" || BOOT="grub"
+ 
+ # Kernel.
+ KERNEL=""
+-select_one KERNEL "Kernel" "linux (stable)" "linux-lts (longterm)" "linux-zen (desktop)"
++select_one KERNEL "Kernel" "linux-aarch64 (stable)" "linux-aarch64-rc (rc)"
+ case "$KERNEL" in
+-    "linux-lts (longterm)") KERNEL="linux-lts" ;;
+-    "linux-zen (desktop)")  KERNEL="linux-zen" ;;
+-    *)                      KERNEL="linux" ;;
++    "linux-aarch64-rc (rc)") KERNEL="linux-aarch64-rc" ;;
++    *)                       KERNEL="linux-aarch64" ;;
+ esac
+ 
+ # Root encryption (LUKS).
+--- a/airootfs/root/x-installer/autoinstall.sh
++++ b/airootfs/root/x-installer/autoinstall.sh
+@@ -7,7 +7,7 @@
+ # Runs as a systemd service (x-autoinstall.service) in the live environment.
+ 
+ dbg() {
+-    printf 'autoinstall: %s\n' "$*" >/dev/ttyS0 2>/dev/null || printf 'autoinstall: %s\n' "$*" >/dev/console 2>/dev/null || true
++    printf 'autoinstall: %s\n' "$*" >/dev/ttyAMA0 2>/dev/null || printf 'autoinstall: %s\n' "$*" >/dev/console 2>/dev/null || true
+ }
+ 
+ dbg "cmdline: $(cat /proc/cmdline)"
+@@ -48,7 +48,7 @@
+ X_INSTALL_JSON="$JSON" bash -x /root/x-installer/install.sh >"$LOG" 2>&1
+ rc=$?
+ set -e
+-cat "$LOG" >/dev/ttyS0 2>/dev/null || true
++cat "$LOG" >/dev/ttyAMA0 2>/dev/null || true
+ dbg "install.sh rc=$rc"
+ umount "$CIMNT"
+ exit "$rc"
