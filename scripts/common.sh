@@ -11,7 +11,9 @@ X_DIR="$VENDOR/x"
 ARCHISO_DIR="$VENDOR/archiso"
 OUT="$ROOT/out"
 ARCH="aarch64"
-X_REPO_URL="${X_ARM_X_REPO_URL:-https://equislinux.github.io/x-repo/repo/$ARCH}"
+# The [x]/aarch64 repository is published from the dedicated
+# equislinux/x-arm-repo repo (GitHub Pages), mirroring x-repo for x86_64.
+X_REPO_URL="${X_ARM_X_REPO_URL:-https://equislinux.github.io/x-arm-repo/repo/$ARCH}"
 
 x_repo_url() { printf '%s\n' "$X_REPO_URL"; }
 X_SRC_URL="${X_ARM_X_SRC_URL:-https://github.com/equislinux/x.git}"

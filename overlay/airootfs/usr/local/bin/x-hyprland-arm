@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# x-hyprland-arm — aarch64 wrapper around the shared Hyprland/equisdots setup.
+#
+# The shared tool (scripts/tools/hyprland-install.sh, shipped by x-scripts)
+# targets x86_64: it lists x86-only packages, relies on AUR -git builds and
+# removes the official quickshell/swayosd. On Arch Linux ARM that aborts the
+# whole pacman transaction (rofi-emoji is missing) and then tries to compile
+# yay + quickshell-git, which OOMs a 4 GiB VM.
+#
+# This wrapper is ARM-only (x-arm overlay) and runs inside the installed
+# target: it refreshes the pacman databases, installs the ALARM replacements
+# (quickshell/swayosd exist in extra), generates an ARM-sanitized copy of the
+# shared installer and runs it as the target user. The shared repos are never
+# modified.
+#
+# Usage (from x-installer, after the target keyring and user exist):
+#   x-hyprland-arm <target-user>
+# Environment forwarded to the shared installer: X_HYPR_ONLINE, X_HYPR_REF,
+# X_HYPR_SOURCE, X_HYPR_CONFIG.
+set -Eeuo pipefail
+
+TARGET_USER="${1:?usage: x-hyprland-arm <target-user>}"
+SRC=/usr/share/x/tools/hyprland-install.sh
+DST=/usr/share/x/tools/.hyprland-install-arm.sh
+
+log() { printf '\033[1;32m[x]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[x!]\033[0m %s\n' "$*" >&2; }
+
+[[ "$(id -u)" -eq 0 ]] || { echo "x-hyprland-arm: must run as root" >&2; exit 1; }
+[[ -f "$SRC" ]] || { echo "x-hyprland-arm: $SRC is missing (x-scripts not installed)" >&2; exit 1; }
+
+# The live ISO database ages between releases; ALARM prunes old package
+# versions, so the desktop transaction 404s unless the databases are refreshed
+# right before installing (happened with poppler/kirigami-addons on 2026-10-29).
+log "refreshing pacman databases (mirror pruning breaks stale databases)"
+pacman -Sy --noconfirm
+
+# aarch64 replacements for the AUR-only stack (do exist in ALARM extra).
+# Respect providers installed by a previous attempt (quickshell-git/swayosd-git
+# from the AUR path) to avoid unresolvable pacman conflicts.
+log "installing the ARM desktop shell (quickshell, swayosd)"
+add_qs=""; add_sd=""
+pacman -Q quickshell-git >/dev/null 2>&1 || add_qs=quickshell
+pacman -Q swayosd-git >/dev/null 2>&1 || add_sd=swayosd
+if [[ -n "$add_qs$add_sd" ]]; then
+    pacman -S --needed --noconfirm $add_qs $add_sd \
+        || warn "quickshell/swayosd install failed; continuing"
+fi
+
+# Build an ARM-sanitized copy: drop every OFFICIAL package that ALARM does not
+# ship (rofi-emoji today) instead of letting one missing target abort the whole
+# transaction, keep the official quickshell/swayosd installed above, and empty
+# the AUR array (no makepkg/yay builds on ARM). The arrays are rewritten
+# structurally so a payload refresh cannot silently reintroduce the AUR path.
+filtered=""
+for p in $(sed -n '/^OFFICIAL=(/,/^)/p' "$SRC" | sed '1d;$d' | tr -s '[:space:]' ' '); do
+    if pacman -Si "$p" >/dev/null 2>&1; then
+        filtered="$filtered $p"
+    else
+        warn "skipping $p (not in Arch Linux ARM)"
+    fi
+done
+filtered="$filtered $add_qs $add_sd"
+
+awk -v off="OFFICIAL=($filtered )" '
+    /^OFFICIAL=\(/ { inblock = "official"; print off; next }
+    /^AUR=\(/      { inblock = "aur";      print "AUR=( )"; next }
+    inblock && /^\)/ { inblock = ""; next }
+    inblock { next }
+    { print }
+' "$SRC" > "$DST"
+
+# Never remove the official quickshell/swayosd installed above.
+sed -i 's|^root pacman -R .*quickshell.*$|true|' "$DST"
+chmod 755 "$DST"
+
+envargs=(HOME="/home/$TARGET_USER")
+[[ -n "${X_HYPR_ONLINE:-}" ]] && envargs+=(X_HYPR_ONLINE="$X_HYPR_ONLINE")
+[[ -n "${X_HYPR_REF:-}" ]] && envargs+=(X_HYPR_REF="$X_HYPR_REF")
+[[ -n "${X_HYPR_SOURCE:-}" ]] && envargs+=(X_HYPR_SOURCE="$X_HYPR_SOURCE")
+[[ -n "${X_HYPR_CONFIG:-}" ]] && envargs+=(X_HYPR_CONFIG="$X_HYPR_CONFIG")
+
+log "running the shared equisdots installer as $TARGET_USER"
+runuser -u "$TARGET_USER" -- env "${envargs[@]}" bash "$DST"
+
+# --- ARM/virgl compatibility fixes (idempotent) -----------------------------
+# Hyprland 0.57 caps shadow.render_power at 4; the equisdots settings ship 5,
+# which makes every session show a config-error banner.
+USER_HOME="/home/$TARGET_USER"
+SETTINGS="$USER_HOME/.config/hypr/settings.lua"
+if [[ -f "$SETTINGS" ]]; then
+    sed -i -E 's/(render_power[[:space:]]*=[[:space:]]*)5([[:space:]]*,)/\14\2/' "$SETTINGS"
+fi
+
+# On a virtual GPU (virtio-gpu + virgl, e.g. UTM/QEMU) two UI pieces misbehave:
+#   - the equisdots Floating overlay renders an opaque layer over the whole
+#     desktop, hiding the wallpaper and every window;
+#   - kitty requires desktop OpenGL while virgl exposes GLES 3.0 only, so it
+#     aborts with "EGL: No EGLConfigs returned".
+# Both fixes are scoped to virtio-gpu; real hardware keeps the stock stack.
+if [[ -d /sys/bus/virtio/drivers/virtio_gpu ]]; then
+    log "virtual GPU detected: applying virgl compatibility fixes"
+    SHELL_QML="$USER_HOME/.config/hypr/scripts/quickshell/Shell.qml"
+    if [[ -f "$SHELL_QML" ]] && ! grep -q 'x-arm: floating overlay disabled' "$SHELL_QML"; then
+        cp -a "$SHELL_QML" "$SHELL_QML.x-arm.bak"
+        sed -i 's/^[[:space:]]*Floating[[:space:]]*{[[:space:]]*}[[:space:]]*$/    \/\/ Floating {}  \/\/ x-arm: floating overlay disabled (opaque under virgl)/' "$SHELL_QML"
+    fi
+    SHIM="$USER_HOME/.local/bin/kitty"
+    if [[ ! -e "$SHIM" ]]; then
+        install -d -o "$TARGET_USER" -g "$TARGET_USER" "$USER_HOME/.local/bin"
+        cat > "$SHIM" <<'EOS'
+#!/usr/bin/env bash
+# x-arm: virgl exposes only OpenGL ES; kitty requires desktop GL. llvmpipe works.
+export LIBGL_ALWAYS_SOFTWARE=1
+exec /usr/bin/kitty "$@"
+EOS
+        chown "$TARGET_USER:$TARGET_USER" "$SHIM"
+        chmod 755 "$SHIM"
+    fi
+fi

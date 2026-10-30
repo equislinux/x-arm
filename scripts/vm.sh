@@ -36,6 +36,7 @@ ACCEL="auto"
 GUI=0
 SSH_PORT=""
 SEED_JSON=""
+SEED_IMG=""
 PRINT=0
 
 usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -54,6 +55,7 @@ while [[ $# -gt 0 ]]; do
         --gui)      GUI=1; shift ;;
         --ssh-port) SSH_PORT="${2:?--ssh-port needs a port}"; shift 2 ;;
         --seed-json) SEED_JSON="${2:?--seed-json needs a path}"; shift 2 ;;
+        --seed-img)  SEED_IMG="${2:?--seed-img needs a path}"; shift 2 ;;
         --print)    PRINT=1; shift ;;
         -h|--help)  usage; exit 0 ;;
         *) die "unknown option: $1" ;;
@@ -163,6 +165,8 @@ if [[ "$BOOT" == "iso" ]]; then
         -drive "if=none,id=cdrom,media=cdrom,readonly=on,file=$ISO"
         -device virtio-scsi-pci
         -device 'scsi-cd,drive=cdrom'
+        # Firmware may prefer a bootable disk over the CD; force CD-ROM first.
+        -boot once=d
     )
 fi
 
@@ -178,6 +182,13 @@ if [[ -n "$SEED_JSON" ]]; then
     log "seed: $seed_img (boot the 'autoinstall' GRUB entry)"
     args+=(
         -drive "if=none,id=seed,file=$seed_img,format=raw"
+        -device 'virtio-blk-pci,drive=seed'
+    )
+elif [[ -n "$SEED_IMG" ]]; then
+    [[ -f "$SEED_IMG" ]] || die "seed image not found: $SEED_IMG"
+    log "seed: $SEED_IMG (boot the 'autoinstall' GRUB entry)"
+    args+=(
+        -drive "if=none,id=seed,file=$SEED_IMG,format=raw"
         -device 'virtio-blk-pci,drive=seed'
     )
 fi

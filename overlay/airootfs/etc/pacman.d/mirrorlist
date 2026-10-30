@@ -1,4 +1,13 @@
-## Arch Linux ARM repository mirrorlist
-## The geo endpoint redirects to the closest official mirror. HTTPS is not used:
-## mirror.archlinuxarm.org currently serves a certificate for a different name.
+## Arch Linux ARM repository mirrorlist (aarch64)
+##
+## Only these hosts resolve: the geo endpoint (mirror.archlinuxarm.org) and
+## de.mirror.archlinuxarm.org. Per-country subdomains such as
+## us.mirror.archlinuxarm.org or ca.mirror.archlinuxarm.org no longer exist
+## (DNS NXDOMAIN), so do not add them.
+##
+## The DE mirror goes first because the geo endpoint applies aggressive
+## throttling ("Operation too slow. Less than 1 bytes/sec"), and the geo
+## endpoint stays as a fallback. HTTPS is not used: mirror.archlinuxarm.org
+## currently serves a certificate for a different name.
+Server = http://de.mirror.archlinuxarm.org/$arch/$repo
 Server = http://mirror.archlinuxarm.org/$arch/$repo

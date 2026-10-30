@@ -7,5 +7,22 @@
 /work/
 *.log
 
+# Docker rootfs downloads (pinned by docker/rootfs.sha)
+/docker/rootfs/*
+
+# Build and VM artifacts: never in git, SourceForge is the host
+*.iso
+*.iso.sha256
+*.qcow2
+*.raw
+*.utm
+*.img
+*.vfd
+*.pkg.tar.*
+
+# macOS
+.DS_Store
+._*
+
 # Local overrides
 .env
