@@ -20,6 +20,9 @@ jobs:
           git clone --filter=blob:none --no-checkout https://github.com/equislinux/x.git vendor/x
           git -C vendor/x checkout --detach "$(cat vendor/x.sha)"
 
+      - name: Fetch pinned archiso
+        run: scripts/fetch-archiso.sh
+
       - name: Apply overlay (check mode)
         run: scripts/apply-overlay.sh --check
 
@@ -31,8 +34,10 @@ jobs:
         run: shellcheck scripts/*.sh
 
   iso:
-    # The ISO needs a native aarch64 host. Register a self-hosted runner with
-    # these labels (an Arch Linux ARM machine or an Apple Silicon VM).
+    # Manual-only (workflow_dispatch): ISOs are built locally and published
+    # manually to SourceForge (scripts/publish-arm.sh). This job needs a
+    # self-hosted aarch64 runner registered with these labels; it never runs
+    # on push/PR and nothing is published from CI.
     if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, arm64]
     steps:
