@@ -92,6 +92,24 @@ EOF
 
 RSH=(ssh -i "$SF_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
+# Create the remote directory tree if missing (sftp mkdir is one level at a time).
+if [[ "$UPLOAD" -eq 1 ]]; then
+    path="$SF_PATH"
+    dirs=()
+    while [[ "$path" != "/home/frs/project/"* && "$path" != "/" ]]; do
+        dirs+=("$path")
+        path="$(dirname -- "$path")"
+    done
+    batch=""
+    for ((i=${#dirs[@]}-1; i>=0; i--)); do
+        batch+="mkdir ${dirs[$i]}"$'\n'
+    done
+    if [[ -n "$batch" ]]; then
+        printf '%s' "$batch" | timeout 60 sftp -b - -i "$SF_KEY" -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new "$SF_USER@frs.sourceforge.net" >/dev/null 2>&1 || true
+    fi
+fi
+
 if [[ "$UPLOAD" -eq 0 ]]; then
     log "no upload: skipping $SF_USER@frs.sourceforge.net:$SF_PATH"
 else
@@ -136,13 +154,18 @@ fi
 
 if [[ -f "$RELEASES" ]]; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
-        log "dry-run: would prepend $VERSION to $RELEASES"
+        log "dry-run: would upsert $VERSION into $RELEASES"
     else
         jq --arg v "$VERSION" --arg d "$DATE" --arg n "$NAME" \
            --arg url "$BASE/$NAME/download" --arg sig "$BASE/$NAME.sig/download" \
            --arg sums "$BASE/SHA256SUMS/download" --arg sha "$SHA" \
            --argjson size "$(stat -c %s "$ISO")" --arg arch "$ARCH" \
-           '.arch = $arch | .releases = ([{version:$v,date:$d,arch:$arch,iso:{name:$n,url:$url,size:$size,sha256:$sha,sig:$sig,checksums:$sums}}] + .releases)' \
+           'def entry: {version:$v,date:$d,arch:$arch,iso:{name:$n,url:$url,size:$size,sha256:$sha,sig:$sig,checksums:$sums}};
+            .arch = $arch |
+            if any(.releases[]; .version == $v)
+              then .releases |= map(select(.version == $v) = entry)
+              else .releases = [entry] + .releases
+            end' \
            "$RELEASES" >"$RELEASES.tmp" && mv "$RELEASES.tmp" "$RELEASES"
         log "updated $RELEASES"
     fi

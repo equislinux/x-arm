@@ -70,6 +70,13 @@ for pkg in "${PACKAGES[@]}"; do
     stage="$WORK/build/$pkg"
     mkdir -p "$WORK/build"
     cp -a "$src" "$stage"
+    # Drop build artifacts accidentally committed in x-repo: stray pkg/src
+    # dirs and bare git clones (e.g. packages/xtop/xtop), which make
+    # makepkg abort with "is not a clone of ...".
+    find "$stage" -mindepth 1 -maxdepth 1 \( -name pkg -o -name src \) -exec rm -rf -- {} +
+    while IFS= read -r -d '' d; do
+        [[ -f "$d/HEAD" && -d "$d/objects" ]] && rm -rf -- "$d"
+    done < <(find "$stage" -mindepth 1 -maxdepth 1 -type d -print0)
     if [[ -d "$ROOT/overlay/packages/$pkg" ]]; then
         log "  $pkg (aarch64 override)"
         cp -a "$ROOT/overlay/packages/$pkg/." "$stage/"

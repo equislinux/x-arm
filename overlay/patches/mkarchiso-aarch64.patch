@@ -1,0 +1,78 @@
+diff --git a/archiso/mkarchiso b/archiso/mkarchiso
+index c5ca4b5..c5981a1 100755
+--- a/archiso/mkarchiso
++++ b/archiso/mkarchiso
+@@ -494,7 +494,11 @@ _make_boot_on_iso9660() {
+     _msg_info "Preparing kernel and initramfs for the ISO 9660 file system..."
+     install -d -m 0755 -- "${isofs_dir}/${install_dir}/boot/${arch}"
+     install -m 0644 -- "${boot_dir}/initramfs-"*".img" "${isofs_dir}/${install_dir}/boot/${arch}/"
+-    install -m 0644 -- "${boot_dir}/vmlinuz-"* "${isofs_dir}/${install_dir}/boot/${arch}/"
++    if [[ "${arch}" == "aarch64" ]]; then
++        install -m 0644 -- "${boot_dir}/Image" "${isofs_dir}/${install_dir}/boot/${arch}/"
++    else
++        install -m 0644 -- "${boot_dir}/vmlinuz-"* "${isofs_dir}/${install_dir}/boot/${arch}/"
++    fi
+ 
+     if (( need_external_ucodes )); then
+         for ucode_image in "${ucodes[@]}"; do
+@@ -568,8 +572,13 @@ _make_boot_on_fat() {
+     _msg_info "Preparing kernel and initramfs for the FAT file system..."
+     mmd -i "${efibootimg}" \
+         "::/${install_dir}" "::/${install_dir}/boot" "::/${install_dir}/boot/${arch}"
+-    mcopy -i "${efibootimg}" "${boot_dir}/vmlinuz-"* \
+-        "${boot_dir}/initramfs-"*".img" "::/${install_dir}/boot/${arch}/"
++    if [[ "${arch}" == "aarch64" ]]; then
++        mcopy -i "${efibootimg}" "${boot_dir}/Image" \
++            "${boot_dir}/initramfs-"*".img" "::/${install_dir}/boot/${arch}/"
++    else
++        mcopy -i "${efibootimg}" "${boot_dir}/vmlinuz-"* \
++            "${boot_dir}/initramfs-"*".img" "::/${install_dir}/boot/${arch}/"
++    fi
+     if (( need_external_ucodes )); then
+         for ucode_image in "${ucodes[@]}"; do
+             if [[ -e "${boot_dir}/${ucode_image}" ]]; then
+@@ -751,6 +760,15 @@ _make_bootmode_uefi.grub() {
+                  minicmd normal ntfs ntfscomp part_apple part_gpt part_msdos png read reboot regexp search \
+                  search_fs_file search_fs_uuid search_label serial sleep tpm udf usb usbserial_common usbserial_ftdi \
+                  usbserial_pl2303 usbserial_usbdebug video xfs zstd)
++    # Filter out modules that do not exist for the target platform
++    # (e.g. at_keyboard exists on x86_64-efi but not on arm64-efi).
++    if [[ -d "/usr/lib/grub/${grub_target}" ]]; then
++        local grubmodules_available=() module
++        for module in "${grubmodules[@]}"; do
++            [[ -f "/usr/lib/grub/${grub_target}/${module}.mod" ]] && grubmodules_available+=("$module")
++        done
++        grubmodules=("${grubmodules_available[@]}")
++    fi
+ 
+     # Set up GRUB in ISO 9660. This allows creating a medium for the live environment by using
+     # manual partitioning and simply copying the ISO 9660 file system contents.
+@@ -931,9 +949,13 @@ _make_bootmode_uefi.systemd-boot() {
+                    "${isofs_dir}/shell"*'.efi'
+                    "${isofs_dir}/boot/memtest86+/memtest"*'.efi'
+                    "${isofs_dir}/boot/memtest86+/LICENSE"
+-                   "${boot_dir}/vmlinuz-"*
+                    "${boot_dir}/initramfs-"*".img"
+                    "${_available_ucodes[@]}")
++    if [[ "${arch}" == "aarch64" ]]; then
++        efiboot_files+=("${boot_dir}/Image")
++    else
++        efiboot_files+=("${boot_dir}"/vmlinuz-*)
++    fi
+ 
+     # Create a FAT image for the EFI system partition
+     _make_efibootimg
+@@ -1254,7 +1276,12 @@ _sign_netboot_artifacts() {
+             _files_to_sign+=("${_dir}${_file}")
+         fi
+     done
+-    for _file in "${_files_to_sign[@]}" "${_dir}${arch}/vmlinuz-"!(*.sig) "${_dir}${arch}/initramfs-"*.img; do
++    if [[ "${arch}" == "aarch64" ]]; then
++        _kernel_files=("${_dir}${arch}/Image")
++    else
++        _kernel_files=("${_dir}${arch}/vmlinuz-"!(*.sig))
++    fi
++    for _file in "${_files_to_sign[@]}" "${_kernel_files[@]}" "${_dir}${arch}/initramfs-"*.img; do
+         rm -f -- "${_file}".ipxe.sig
+         openssl cms \
+             -sign \

@@ -43,6 +43,24 @@ A release is publishable when every item is checked on a clean aarch64 host.
 - [ ] `uname -m` is `aarch64`; `pacman -Q linux-aarch64` succeeds.
 - [ ] Dualboot path does not touch an existing ESP or foreign EFI entries.
 
+## Desktop (Hyprland/equisdots)
+
+- [ ] The installer runs `x-hyprland-arm` (not the shared x86_64 script).
+- [ ] `quickshell` and `swayosd` come from ALARM `extra`; no `yay`/makepkg
+      build runs and no `quickshell-git` is installed.
+- [ ] Packages missing from ALARM (`rofi-emoji`) are skipped, not fatal: the
+      pacman transaction completes.
+- [ ] `pacman -Sy` runs before the desktop transaction (no 404 on stale
+      package versions).
+- [ ] After login, `quickshell` renders the bar/panels (`hyprctl layers`
+      shows the `quickshell` layer) and `SUPER+Return` opens kitty.
+- [ ] The online equisdots payload installs `core/sdk/PluginHost.qml`
+      (offline snapshot lacks it, so only online mode gives a working shell).
+- [ ] `hyprctl configerrors` is empty after the first login
+      (`decoration.shadow.render_power` clamped to 4).
+- [ ] Under virtio-gpu: the wallpaper is visible, windows are not covered (the
+      `Floating` overlay is disabled) and kitty starts from the launcher.
+
 ## VM deliverables
 
 - [ ] `build-vm.sh --export` produces `.qcow2`, `.raw` and `.sha256`.

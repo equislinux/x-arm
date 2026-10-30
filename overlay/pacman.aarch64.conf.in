@@ -11,6 +11,8 @@ Architecture = aarch64
 ParallelDownloads = 5
 SigLevel    = Required DatabaseOptional
 LocalFileSigLevel = Optional
+# See airootfs/etc/pacman.conf: never abort a download on a throttled mirror.
+DisableDownloadTimeout
 
 # X packages for the live image. Never required during the build: the project
 # key is imported and locally signed at boot by x-keyring.service.

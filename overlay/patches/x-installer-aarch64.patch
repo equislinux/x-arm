@@ -57,7 +57,15 @@
  fi
  # KDE Plasma is installed online from the official repositories; the X
  # branding layer (x-kde-settings) comes from the signed [x] repository.
-@@ -244,7 +239,7 @@
+@@ -237,14 +232,14 @@
+ else
+     PKGS="$EXTRA"
+     if [[ -f "$PKGLIST" ]]; then
+-        PKGS="$PKGS $(sed 's/#.*//' "$PKGLIST" | tr '\n' ' ')"
++        PKGS="$PKGS $(sed 's/#.*//' "$PKGLIST" | grep -vE '^(linux-aarch64|linux-aarch64-rc)$' | tr '\n' ' ')"
+     fi
+ fi
+ 
  echo "== waiting for network"
  NET_OK=0
  for i in $(seq 1 60); do
@@ -84,16 +92,42 @@
  pacman-key --gpgdir "$GPGDIR" --add "$LIVE_KEY"
  pacman-key --gpgdir "$GPGDIR" --lsign-key "$X_KEY_FPR"
  install -Dm644 "$LIVE_KEY" "$MNT/etc/pacman.d/x-repo.pub"
-@@ -343,7 +338,7 @@
+@@ -343,9 +338,11 @@
  [x]
  # Key imported and locally signed during install (/etc/pacman.d/x-repo.pub).
  SigLevel = Required
 -Server = https://equislinux.github.io/x-repo/repo/x86_64
-+Server = https://equislinux.github.io/x-repo/repo/aarch64
++Server = https://equislinux.github.io/x-arm-repo/repo/aarch64
  EOF
  fi
++# Never abort package downloads on a throttled ALARM mirror.
++sed -i '/^\[options\]/a DisableDownloadTimeout' "$MNT/etc/pacman.conf"
  
-@@ -464,24 +459,24 @@
+ echo "== user"
+ arch-chroot "$MNT" useradd -m -G wheel -s /usr/bin/zsh "$USER"
+@@ -385,6 +382,7 @@
+ 
+ if [[ "$DESKTOP" == "hyprland" ]]; then
+     echo "== installing the Hyprland/equisdots desktop (as user, with temporary passwordless sudo)"
++install -Dm755 /usr/local/bin/x-hyprland-arm "$MNT/usr/local/bin/x-hyprland-arm"
+     cat > "$MNT/etc/sudoers.d/x-hypr-install" <<'EOF'
+ %wheel ALL=(ALL) NOPASSWD: ALL
+ EOF
+@@ -396,11 +394,11 @@
+         # the equisdots ref. On failure fall back to the packaged snapshot.
+         HYPR_ENV="X_HYPR_ONLINE=1"
+         [[ -n "$HYPR_REF" ]] && HYPR_ENV="$HYPR_ENV X_HYPR_REF=$HYPR_REF"
+-        arch-chroot "$MNT" runuser -u "$USER" -- env $HYPR_ENV /usr/share/x/tools/hyprland-install.sh
++        arch-chroot "$MNT" env $HYPR_ENV /usr/local/bin/x-hyprland-arm "$USER"
+         rc=$?
+         if [[ $rc -ne 0 ]]; then
+             echo "warning: online desktop setup failed (rc=$rc); falling back to the bundled snapshot"
+-            arch-chroot "$MNT" runuser -u "$USER" -- /usr/share/x/tools/hyprland-install.sh
++            arch-chroot "$MNT" /usr/local/bin/x-hyprland-arm "$USER"
+             rc=$?
+         fi
+     else
+@@ -464,24 +462,24 @@
  
  echo "== bootloader ($BOOT)"
  if [[ "$BOOT" == "systemd-boot" ]]; then
@@ -127,7 +161,7 @@
      fi
      mkdir -p "$MNT/boot/loader/entries"
      cat > "$MNT/boot/loader/loader.conf" <<'EOF'
-@@ -491,8 +486,8 @@
+@@ -491,8 +489,8 @@
  EOF
      cat > "$MNT/boot/loader/entries/x.conf" <<EOF
  title   X Linux
@@ -138,7 +172,7 @@
  options $CMDROOT
  EOF
  else
-@@ -501,10 +496,9 @@
+@@ -501,12 +499,14 @@
          # Unique bootloader-id: never overwrite EFI/Microsoft/**; os-prober
          # adds the Windows entry to the generated menu.
          arch-chroot "$MNT" bash -c "grep -q '^GRUB_DISABLE_OS_PROBER=' /etc/default/grub && sed -i 's/^GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub || echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub"
@@ -150,8 +184,13 @@
 +        arch-chroot "$MNT" grub-install --target=arm64-efi --efi-directory=/boot --removable --recheck
      fi
      arch-chroot "$MNT" grub-mkconfig -o /boot/grub/grub.cfg
++    # ALARM: GRUB 2.16's 10_linux adds no initrd line for versionless
++    # kernels (/boot/Image); inject it after every linux entry.
++    arch-chroot "$MNT" bash -c 'if ! grep -q "[[:space:]]initrd" /boot/grub/grub.cfg; then sed -i "/^[[:space:]]*linux[[:space:]]/a\\tinitrd\t/initramfs-linux.img" /boot/grub/grub.cfg; fi'
  fi
-@@ -518,12 +512,12 @@
+ 
+ # Firmware entry: bootctl/grub-install can silently skip writing the EFI
+@@ -518,12 +518,12 @@
          if [[ "$BOOT" == "systemd-boot" ]]; then
              if ! efibootmgr 2>/dev/null | grep -q 'Linux Boot Manager'; then
                  efibootmgr -c -d "$DISK" -p "$espnum" -L 'Linux Boot Manager' \
